@@ -122,19 +122,29 @@ print(f"Distance back to origin: {closure_error:.2f}'")
 # Create bearings list for later use
 bearings = [bearing1, bearing2, bearing3, bearing4, bearing5, bearing6]
 
-# Now rotate the polygon so the 60' side has the correct bearing of 340°6' magnetic
-# Currently the 60' side (side 2) has bearing 180.3°, but it should be 340°6'
-target_magnetic_bearing = 340 + 6/60  # 340.1°
-current_60_bearing = bearing2  # 180.3°
-rotation_needed = target_magnetic_bearing - current_60_bearing
+# Convert magnetic bearings to true bearings for Adelaide 1961
+# The 60' side at 340°6' magnetic should be 354°56' true (340°6' + 14°50')
+magnetic_declination = 14 + 50/60  # 14°50'
+print(f"Applying magnetic declination for Adelaide 1961: +{magnetic_declination:.1f}°")
+
+# Convert all bearings from our calculated values to true bearings
+# We need to rotate our coordinate system so the 60' side is at 350°56' true
+target_true_bearing = 340 + 6/60 + magnetic_declination  # 350°56' true
+current_60_bearing = bearing2  # 180.3° in our coordinate system
+rotation_needed = target_true_bearing - current_60_bearing
 if rotation_needed < -180:
     rotation_needed += 360
 elif rotation_needed > 180:
     rotation_needed -= 360
 
-print(f"\nRotation correction needed: {rotation_needed:.1f}°")
+# Adjust by 180° since we flipped it
+rotation_needed = rotation_needed - 180
+if rotation_needed < -180:
+    rotation_needed += 360
 
-# Apply rotation to all vertices
+print(f"Rotation needed to align to true north: {rotation_needed:.1f}°")
+
+# Apply rotation to all vertices to align with true north
 rotation_rad = math.radians(rotation_needed)
 cos_rot = math.cos(rotation_rad)
 sin_rot = math.sin(rotation_rad)
@@ -145,27 +155,30 @@ for x, y in vertices:
     new_y = x * sin_rot + y * cos_rot
     rotated_vertices.append((new_x, new_y))
 
-# Apply magnetic declination correction for Adelaide 1961: +10°50'
-magnetic_declination = 10 + 50/60  # 10°50'
-print(f"Applying magnetic declination for Adelaide 1961: +{magnetic_declination:.1f}°")
-
-# Recalculate all bearings with corrections
-corrected_bearings = []
-for bearing in bearings:
-    # First apply rotation
-    corrected_bearing = normalize_bearing(bearing + rotation_needed)
-    # Then apply magnetic declination to get true bearing
-    true_bearing = normalize_bearing(corrected_bearing + magnetic_declination)
-    corrected_bearings.append(true_bearing)
-
-print(f"\nCorrected bearings (True North):")
+# Calculate true bearings
+true_bearings = []
 side_names = ["71'", "60'", "87'1\"", "21'2\"", "25'", "92'2\""]
-for i, (name, mag_bear, true_bear) in enumerate(zip(side_names, bearings, corrected_bearings)):
-    mag_corrected = normalize_bearing(bearings[i] + rotation_needed)
-    print(f"Side {i+1} ({name}): {mag_corrected:.1f}° magnetic → {true_bear:.1f}° true")
+print(f"\nTrue bearings:")
+for i, (name, bearing) in enumerate(zip(side_names, bearings)):
+    true_bearing = normalize_bearing(bearing + rotation_needed)
+    true_bearings.append(true_bearing)
+    # Calculate magnetic bearing for reference
+    mag_bearing = normalize_bearing(true_bearing - magnetic_declination)
+    print(f"Side {i+1} ({name}): {mag_bearing:.1f}° magnetic → {true_bearing:.1f}° true")
 
 # Update vertices for plotting
 vertices = rotated_vertices
+
+# Recalculate area after rotation (should be the same)
+rotated_area = 0
+n = len(vertices)
+for i in range(n):
+    j = (i + 1) % n
+    rotated_area += vertices[i][0] * vertices[j][1]
+    rotated_area -= vertices[j][0] * vertices[i][1]
+rotated_area = abs(rotated_area) / 2
+
+print(f"\nFinal area: {rotated_area:.1f} square feet ({rotated_area/43560:.4f} acres)")
 
 # Create the plot
 fig, ax = plt.subplots(1, 1, figsize=(12, 10))
@@ -217,9 +230,9 @@ for i in range(len(vertices)-1):
                 ha='center', fontsize=14, fontweight='bold',
                 bbox=dict(boxstyle='round,pad=0.4', facecolor='yellow', alpha=0.9))
     
-    # Bearing label (show corrected magnetic bearing)
-    corrected_mag_bearing = normalize_bearing(bearings[i] + rotation_needed)
-    ax.annotate(f'{corrected_mag_bearing:.1f}° mag', (mid_x, mid_y), 
+    # Bearing label (show true bearing)
+    true_bearing = normalize_bearing(bearings[i] + rotation_needed)
+    ax.annotate(f'{true_bearing:.1f}° true', (mid_x, mid_y), 
                 xytext=(0, -25), textcoords='offset points',
                 ha='center', fontsize=10, fontweight='bold',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.9))
@@ -240,12 +253,21 @@ ax.annotate('N', xy=(0.95, 0.95), xycoords='axes fraction',
 ax.annotate('↑', xy=(0.95, 0.91), xycoords='axes fraction', 
             fontsize=28, ha='center', va='center')
 
-# Set equal aspect ratio and styling
+# Set equal aspect ratio (1:1 scale) and styling
 ax.set_aspect('equal')
 ax.grid(True, alpha=0.4, linestyle='-', linewidth=0.5)
 ax.set_xlabel('East (feet)', fontsize=14)
 ax.set_ylabel('North (feet)', fontsize=14)
-ax.set_title(f'Plot 7 - Complete Survey (Corrected)\n60\' @ 340°6\' magnetic, Adelaide 1961 (+10°50\' decl.)\nClosure Error: {closure_error:.2f} feet', fontsize=14, pad=20)
+ax.set_title(f'Plot 7 - Complete Survey (True North)\n60\' @ 354°56\' true (340°6\' mag + 14°50\' decl.)\nArea: {rotated_area:.0f} sq ft ({rotated_area/43560:.4f} acres) | Closure: {closure_error:.2f} ft', fontsize=12, pad=20)
+
+# Calculate perimeter for display
+perimeter = sum(side_lengths)
+
+# Add area text box on the plot
+area_text = f"Area: {rotated_area:.0f} sq ft\n({rotated_area/43560:.4f} acres)\nPerimeter: {perimeter:.1f} ft"
+ax.text(0.02, 0.98, area_text, transform=ax.transAxes, 
+        fontsize=12, fontweight='bold', verticalalignment='top',
+        bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.9))
 
 # Add margin around the plot
 x_min, x_max = min(x_coords), max(x_coords)
@@ -273,4 +295,19 @@ close_bearing_deg = math.degrees(close_bearing_rad)
 close_bearing_survey = 90 - close_bearing_deg
 if close_bearing_survey < 0:
     close_bearing_survey += 360
-print(f"\nTo close: need bearing {close_bearing_survey:.1f}° for {closure_error:.2f}'") 
+print(f"\nTo close: need bearing {close_bearing_survey:.1f}° for {closure_error:.2f}'")
+
+# Calculate area using shoelace formula
+area = 0
+n = len(vertices)
+for i in range(n):
+    j = (i + 1) % n
+    area += vertices[i][0] * vertices[j][1]
+    area -= vertices[j][0] * vertices[i][1]
+area = abs(area) / 2
+
+print(f"\nOriginal polygon area: {area:.1f} square feet ({area/43560:.4f} acres)")
+
+# Calculate perimeter
+perimeter = sum(side_lengths)
+print(f"Perimeter: {perimeter:.1f} feet") 
